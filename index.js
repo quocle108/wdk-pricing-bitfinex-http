@@ -42,15 +42,27 @@ export class BitfinexPricingClient extends PricingClient {
   /**
    * @param {string} from - Base currency (e.g. 'BTC')
    * @param {string} to - Quote currency (e.g. 'USD')
-   * @returns {Promise<number>}
+   * @returns {Promise<number|null>}
    */
   async getCurrentPrice (from, to) {
+    const [price] = await this.getMultiCurrentPrices([{ from, to }])
+    // Preserve the previous contract: `null` (not `undefined`) for an
+    // unresolvable pair, matching the old raw /calc/fx passthrough.
+    return price ?? null
+  }
+
+  /**
+   * Posts a batch of FX conversion requests to Bitfinex and returns the
+   * resulting rates in the same order as the input pairs. Bitfinex returns
+   * `null` for any pair it cannot convert directly.
+   * @internal
+   * @param {Array<{ ccy1: string, ccy2: string, fiat_fx?: number, amount?: number }>} pairs
+   * @returns {Promise<Array<number|null>>}
+   */
+  async _fxBatch (pairs) {
     const response = await this.client.post(
-      '/calc/fx',
-      {
-        ccy1: from.toUpperCase(),
-        ccy2: to.toUpperCase()
-      },
+      '/calc/fx/batch',
+      { pairs },
       {
         headers: {
           contentType: 'application/json',
@@ -58,13 +70,14 @@ export class BitfinexPricingClient extends PricingClient {
         }
       }
     )
-    return response.data[0]
+    return response.data
   }
 
   /**
    * Builds a Bitfinex ticker symbol for a currency pair.
    * Bitfinex requires a colon separator when either symbol is longer than 3 characters
    * (e.g. tXAUT:USD instead of tXAUTUSD).
+   * @internal
    * @param {string} from - Base currency (e.g. 'BTC', 'XAUT')
    * @param {string} to - Quote currency (e.g. 'USD')
    * @returns {string} Bitfinex ticker symbol (e.g. 'tBTCUSD', 'tXAUT:USD')
@@ -79,23 +92,54 @@ export class BitfinexPricingClient extends PricingClient {
   }
 
   /**
+   * Fetches the current conversion rate for multiple currency pairs in a single
+   * batch request. Pairs that Bitfinex cannot convert directly (typically fiat
+   * currencies it does not quote, e.g. BRL or ARS) fall back to a two-leg
+   * conversion through USD using its fiat FX rates: `from -> USD -> to`.
    * @param {PricePair[]} list - Array of currency pairs
-   * @returns {Promise<number[]>} Array of prices in the same order as input pairs
+   * @returns {Promise<Array<number|undefined>>} Prices in the same order as input pairs; `undefined` for pairs that cannot be resolved
    */
   async getMultiCurrentPrices (list) {
-    const symbols = list.map((p) => this._tickerFor(p.from, p.to)).join(',')
+    const direct = await this._fxBatch(
+      list.map((p) => ({
+        ccy1: p.from.toUpperCase(),
+        ccy2: p.to.toUpperCase(),
+        amount: 1
+      }))
+    )
 
-    const response = await this.client.get(`/tickers?symbols=${symbols}`)
+    const pivotIndexes = []
+    direct.forEach((price, index) => {
+      if (price == null) {
+        pivotIndexes.push(index)
+      }
+    })
 
-    const SYMBOL_INDEX = 0
-    const LAST_PRICE_INDEX = 7
-    const priceBySymbol = new Map()
-
-    for (const ticker of response.data) {
-      priceBySymbol.set(ticker[SYMBOL_INDEX], ticker[LAST_PRICE_INDEX])
+    if (pivotIndexes.length === 0) {
+      return direct
     }
 
-    return list.map((p) => priceBySymbol.get(this._tickerFor(p.from, p.to)))
+    // Fall back to converting through USD for pairs Bitfinex cannot quote
+    // directly. Each pair contributes two legs: `from -> USD` and `USD -> to`,
+    // the latter using fiat FX rates.
+    const pivotPairs = []
+    for (const index of pivotIndexes) {
+      const p = list[index]
+      pivotPairs.push({ ccy1: p.from.toUpperCase(), ccy2: 'USD', amount: 1 })
+      pivotPairs.push({ ccy1: 'USD', ccy2: p.to.toUpperCase(), fiat_fx: 1, amount: 1 })
+    }
+
+    const pivot = await this._fxBatch(pivotPairs)
+
+    const prices = [...direct]
+    pivotIndexes.forEach((listIndex, n) => {
+      const fromUsd = pivot[n * 2]
+      const usdTo = pivot[n * 2 + 1]
+      prices[listIndex] =
+        fromUsd == null || usdTo == null ? undefined : fromUsd * usdTo
+    })
+
+    return prices
   }
 
   /**

@@ -21,6 +21,7 @@ import { BitfinexPricingClient } from '../index'
 describe('BitfinexPricingClient', () => {
   let client
   let mockGet
+  let mockPost
 
   beforeEach(() => {
     // Create a mock get function for historical data
@@ -38,8 +39,8 @@ describe('BitfinexPricingClient', () => {
         162000.12345 // [9] LOW
       ]
     })
-    // Create a mock post function for current price
-    const mockPost = jest.fn().mockResolvedValue({
+    // Create a mock post function for FX batch conversions
+    mockPost = jest.fn().mockResolvedValue({
       data: [165000.12345]
     })
 
@@ -53,18 +54,15 @@ describe('BitfinexPricingClient', () => {
   })
 
   describe('getCurrentPrice', () => {
-    it('should return the current price from Bitfinex API', async () => {
+    it('should return the current price from the Bitfinex FX batch API', async () => {
       const price = await client.getCurrentPrice('BTC', 'USD')
 
       expect(price).toBe(165000.12345)
       expect(axios.create).toHaveBeenCalledWith({
         baseURL: 'https://api-pub.bitfinex.com/v2'
       })
-      // Get the post function from the mocked axios client
-      const mockPost = axios.create().post
-      expect(mockPost).toHaveBeenCalledWith('/calc/fx', {
-        ccy1: 'BTC',
-        ccy2: 'USD'
+      expect(mockPost).toHaveBeenCalledWith('/calc/fx/batch', {
+        pairs: [{ ccy1: 'BTC', ccy2: 'USD', amount: 1 }]
       }, {
         headers: {
           contentType: 'application/json',
@@ -72,15 +70,34 @@ describe('BitfinexPricingClient', () => {
         }
       })
     })
+
+    it('should fall back to a USD pivot for currencies Bitfinex cannot quote directly', async () => {
+      mockPost
+        .mockReset()
+        .mockResolvedValueOnce({ data: [null] }) // direct BTC->BRL not supported
+        .mockResolvedValueOnce({ data: [165000, 5.0605] }) // BTC->USD, USD->BRL
+
+      const price = await client.getCurrentPrice('BTC', 'BRL')
+
+      expect(price).toBe(165000 * 5.0605)
+    })
+
+    it('should return null (not undefined) when a pair cannot be resolved', async () => {
+      mockPost
+        .mockReset()
+        .mockResolvedValueOnce({ data: [null] }) // direct BTC->XYZ not supported
+        .mockResolvedValueOnce({ data: [165000, null] }) // USD->XYZ not supported either
+
+      const price = await client.getCurrentPrice('BTC', 'XYZ')
+
+      expect(price).toBeNull()
+    })
   })
 
   describe('getMultiCurrentPrices', () => {
-    it('should return prices for multiple pairs from Bitfinex tickers API', async () => {
-      mockGet.mockReset().mockResolvedValue({
-        data: [
-          ['tBTCUSD', 163000, 100, 164000, 100, 731, 0.07, 165000.12345, 14480, 166000, 162000],
-          ['tETHUSD', 3000, 200, 3010, 200, 50, 0.02, 3005.6789, 50000, 3100, 2900]
-        ]
+    it('should return prices for multiple pairs from the FX batch API', async () => {
+      mockPost.mockReset().mockResolvedValue({
+        data: [165000.12345, 3005.6789]
       })
 
       const prices = await client.getMultiCurrentPrices([
@@ -89,78 +106,90 @@ describe('BitfinexPricingClient', () => {
       ])
 
       expect(prices).toEqual([165000.12345, 3005.6789])
-      expect(mockGet).toHaveBeenCalledWith('/tickers?symbols=tBTCUSD,tETHUSD')
+      expect(mockPost).toHaveBeenCalledWith('/calc/fx/batch', {
+        pairs: [
+          { ccy1: 'BTC', ccy2: 'USD', amount: 1 },
+          { ccy1: 'ETH', ccy2: 'USD', amount: 1 }
+        ]
+      }, {
+        headers: {
+          contentType: 'application/json',
+          accept: 'application/json'
+        }
+      })
     })
 
     it('should handle single pair', async () => {
-      mockGet.mockReset().mockResolvedValue({
-        data: [
-          ['tBTCUSD', 163000, 100, 164000, 100, 731, 0.07, 165000, 14480, 166000, 162000]
-        ]
-      })
+      mockPost.mockReset().mockResolvedValue({ data: [165000] })
 
       const prices = await client.getMultiCurrentPrices([{ from: 'BTC', to: 'USD' }])
 
       expect(prices).toEqual([165000])
-      expect(mockGet).toHaveBeenCalledWith('/tickers?symbols=tBTCUSD')
+      expect(mockPost).toHaveBeenCalledWith('/calc/fx/batch', {
+        pairs: [{ ccy1: 'BTC', ccy2: 'USD', amount: 1 }]
+      }, expect.anything())
     })
 
-    it('should preserve input order when API returns different order', async () => {
-      mockGet.mockReset().mockResolvedValue({
-        data: [
-          ['tETHUSD', 3000, 200, 3010, 200, 50, 0.02, 3005, 50000, 3100, 2900],
-          ['tBTCUSD', 163000, 100, 164000, 100, 731, 0.07, 165000, 14480, 166000, 162000]
-        ]
-      })
+    it('should convert currency codes to uppercase', async () => {
+      mockPost.mockReset().mockResolvedValue({ data: [165000] })
+
+      await client.getMultiCurrentPrices([{ from: 'btc', to: 'usd' }])
+
+      expect(mockPost).toHaveBeenCalledWith('/calc/fx/batch', {
+        pairs: [{ ccy1: 'BTC', ccy2: 'USD', amount: 1 }]
+      }, expect.anything())
+    })
+
+    it('should fall back to a USD pivot only for the pairs Bitfinex cannot quote directly', async () => {
+      mockPost
+        .mockReset()
+        // direct attempt: BTC->USD ok, BTC->BRL not supported (null)
+        .mockResolvedValueOnce({ data: [165000, null] })
+        // pivot attempt for BTC->BRL: BTC->USD, USD->BRL
+        .mockResolvedValueOnce({ data: [165000, 5.0605] })
 
       const prices = await client.getMultiCurrentPrices([
+        { from: 'BTC', to: 'USD' },
+        { from: 'BTC', to: 'BRL' }
+      ])
+
+      expect(prices).toEqual([165000, 165000 * 5.0605])
+
+      expect(mockPost).toHaveBeenNthCalledWith(1, '/calc/fx/batch', {
+        pairs: [
+          { ccy1: 'BTC', ccy2: 'USD', amount: 1 },
+          { ccy1: 'BTC', ccy2: 'BRL', amount: 1 }
+        ]
+      }, expect.anything())
+
+      expect(mockPost).toHaveBeenNthCalledWith(2, '/calc/fx/batch', {
+        pairs: [
+          { ccy1: 'BTC', ccy2: 'USD', amount: 1 },
+          { ccy1: 'USD', ccy2: 'BRL', fiat_fx: 1, amount: 1 }
+        ]
+      }, expect.anything())
+    })
+
+    it('should not make a second request when every pair converts directly', async () => {
+      mockPost.mockReset().mockResolvedValue({ data: [165000, 3005] })
+
+      await client.getMultiCurrentPrices([
         { from: 'BTC', to: 'USD' },
         { from: 'ETH', to: 'USD' }
       ])
 
-      expect(prices).toEqual([165000, 3005])
+      expect(mockPost).toHaveBeenCalledTimes(1)
     })
 
-    it('should convert currency codes to uppercase', async () => {
-      mockGet.mockReset().mockResolvedValue({
-        data: [
-          ['tBTCUSD', 163000, 100, 164000, 100, 731, 0.07, 165000, 14480, 166000, 162000]
-        ]
-      })
+    it('should return undefined when even the USD pivot cannot resolve a pair', async () => {
+      mockPost
+        .mockReset()
+        .mockResolvedValueOnce({ data: [null] }) // direct BTC->XYZ not supported
+        .mockResolvedValueOnce({ data: [165000, null] }) // USD->XYZ not supported either
 
-      await client.getMultiCurrentPrices([{ from: 'btc', to: 'usd' }])
+      const prices = await client.getMultiCurrentPrices([{ from: 'BTC', to: 'XYZ' }])
 
-      expect(mockGet).toHaveBeenCalledWith('/tickers?symbols=tBTCUSD')
-    })
-
-    it('should use colon separator for symbols longer than 3 characters', async () => {
-      mockGet.mockReset().mockResolvedValue({
-        data: [
-          ['tXAUT:USD', 163000, 100, 164000, 100, 12, 0.003, 2700.5, 500, 2750, 2650]
-        ]
-      })
-
-      const prices = await client.getMultiCurrentPrices([{ from: 'XAUT', to: 'USD' }])
-
-      expect(prices).toEqual([2700.5])
-      expect(mockGet).toHaveBeenCalledWith('/tickers?symbols=tXAUT:USD')
-    })
-
-    it('should mix colon and non-colon tickers in the same batch', async () => {
-      mockGet.mockReset().mockResolvedValue({
-        data: [
-          ['tBTCUSD', 163000, 100, 164000, 100, 731, 0.07, 65000, 14480, 66000, 64000],
-          ['tXAUT:USD', 163000, 100, 164000, 100, 12, 0.003, 2700.5, 500, 2750, 2650]
-        ]
-      })
-
-      const prices = await client.getMultiCurrentPrices([
-        { from: 'BTC', to: 'USD' },
-        { from: 'XAUT', to: 'USD' }
-      ])
-
-      expect(prices).toEqual([65000, 2700.5])
-      expect(mockGet).toHaveBeenCalledWith('/tickers?symbols=tBTCUSD,tXAUT:USD')
+      expect(prices).toEqual([undefined])
     })
   })
 
