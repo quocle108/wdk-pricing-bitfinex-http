@@ -25,15 +25,15 @@ import axios from 'axios'
  */
 
 export class BitfinexPricingClient extends PricingClient {
-  /** @internal */
+  /** @private */
   HISTORICAL_DATA_AGE = 365 * 24 * 60 * 60000
 
-  /** @internal */
+  /** @private */
   MAX_HISTORICAL_ENTRIES = 100
 
   constructor () {
     super()
-    /** @internal */
+    /** @private */
     this.client = axios.create({
       baseURL: 'https://api-pub.bitfinex.com/v2'
     })
@@ -53,7 +53,7 @@ export class BitfinexPricingClient extends PricingClient {
    * Posts a batch of FX conversion requests to Bitfinex and returns the
    * resulting rates in the same order as the input pairs. Bitfinex returns
    * `null` for any pair it cannot convert directly.
-   * @internal
+   * @private
    * @param {Array<{ ccy1: string, ccy2: string, fiat_fx?: number, amount?: number }>} pairs
    * @returns {Promise<Array<number|null>>}
    */
@@ -75,7 +75,7 @@ export class BitfinexPricingClient extends PricingClient {
    * Builds a Bitfinex ticker symbol for a currency pair.
    * Bitfinex requires a colon separator when either symbol is longer than 3 characters
    * (e.g. tXAUT:USD instead of tXAUTUSD).
-   * @internal
+   * @private
    * @param {string} from - Base currency (e.g. 'BTC', 'XAUT')
    * @param {string} to - Quote currency (e.g. 'USD')
    * @returns {string} Bitfinex ticker symbol (e.g. 'tBTCUSD', 'tXAUT:USD')
@@ -215,7 +215,7 @@ export class BitfinexPricingClient extends PricingClient {
   }
 
   /**
-   * @internal
+   * @private
    * @param {HistoricalPriceResult[]} results
    * @returns {HistoricalPriceResult[]}
    */
