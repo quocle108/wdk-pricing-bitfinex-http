@@ -1,6 +1,6 @@
 {
   "name": "@tetherto/wdk-pricing-bitfinex-http",
-  "version": "1.0.0-beta.2",
+  "version": "1.0.0-beta.3",
   "description": "Bitfinex HTTP client for @tetherto/wdk-pricing-provider",
   "keywords": [
     "tetherto",
@@ -58,7 +58,7 @@
     ]
   },
   "dependencies": {
-    "@tetherto/wdk-pricing-provider": "1.0.0-beta.2",
+    "@tetherto/wdk-pricing-provider": "1.0.0-beta.5",
     "axios": "1.16.0",
     "bare-node-runtime": "^1.2.0"
   },

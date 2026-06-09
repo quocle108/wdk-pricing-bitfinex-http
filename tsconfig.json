@@ -8,7 +8,6 @@
     "declaration": true,
     "emitDeclarationOnly": true,
     "skipLibCheck": true,
-    "stripInternal": true,
     "outDir": "./types"
   }
 }

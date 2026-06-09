@@ -31,6 +31,16 @@ describe('Integration: BitfinexPricingClient (real API)', () => {
     expect(prices[0]).toBeGreaterThan(0)
     expect(prices[1]).toBeGreaterThan(0)
   })
+
+  it('converts to a fiat currency Bitfinex does not quote directly via a USD pivot', async () => {
+    const client = new BitfinexPricingClient()
+
+    // BRL is not quoted directly by Bitfinex, so this exercises the USD pivot path
+    const price = await client.getCurrentPrice('BTC', 'BRL')
+
+    expect(typeof price).toBe('number')
+    expect(price).toBeGreaterThan(0)
+  })
 })
 
 
