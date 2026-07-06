@@ -1,3 +1,9 @@
+/**
+ * @typedef {import('@tetherto/wdk-pricing-provider').PricePair} PricePair
+ * @typedef {import('@tetherto/wdk-pricing-provider').HistoricalPriceOptions} HistoricalPriceOptions
+ * @typedef {import('@tetherto/wdk-pricing-provider').HistoricalPriceResult} HistoricalPriceResult
+ * @typedef {import('@tetherto/wdk-pricing-provider').PriceData} PriceData
+ */
 export class BitfinexPricingClient extends PricingClient {
     /** @private */
     private HISTORICAL_DATA_AGE;
@@ -10,7 +16,7 @@ export class BitfinexPricingClient extends PricingClient {
      * resulting rates in the same order as the input pairs. Bitfinex returns
      * `null` for any pair it cannot convert directly.
      * @private
-     * @param {Array<{ ccy1: string, ccy2: string, fiat_fx?: number, amount?: number }>} pairs
+     * @param {Array<{ ccy1: string, ccy2: string, amount?: number }>} pairs
      * @returns {Promise<Array<number|null>>}
      */
     private _fxBatch;
