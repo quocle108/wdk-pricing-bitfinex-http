@@ -49,14 +49,7 @@ export class BitfinexPricingClient extends PricingClient {
     return price ?? null
   }
 
-  /**
-   * Posts a batch of FX conversion requests to Bitfinex and returns the
-   * resulting rates in the same order as the input pairs. Bitfinex returns
-   * `null` for any pair it cannot convert directly.
-   * @private
-   * @param {Array<{ ccy1: string, ccy2: string, amount?: number }>} pairs
-   * @returns {Promise<Array<number|null>>}
-   */
+  /** @private */
   async _fxBatch (pairs) {
     const response = await this.client.post(
       '/calc/fx/batch',

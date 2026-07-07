@@ -11,14 +11,7 @@ export class BitfinexPricingClient extends PricingClient {
     private MAX_HISTORICAL_ENTRIES;
     /** @private */
     private client;
-    /**
-     * Posts a batch of FX conversion requests to Bitfinex and returns the
-     * resulting rates in the same order as the input pairs. Bitfinex returns
-     * `null` for any pair it cannot convert directly.
-     * @private
-     * @param {Array<{ ccy1: string, ccy2: string, amount?: number }>} pairs
-     * @returns {Promise<Array<number|null>>}
-     */
+    /** @private */
     private _fxBatch;
     /**
      * Builds a Bitfinex ticker symbol for a currency pair.
